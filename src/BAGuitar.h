@@ -28,6 +28,7 @@
 #include "BASpiMemory.h"
 #include "BAGpio.h"
 #include "BAAudioEffectDelayExternal.h"
+#include "BAAudioEffectLoopExternal.h"
 #include "AudioEffectAnalogDelay.h"
 #include "LibBasicFunctions.h"
 #include "LibMemoryManagement.h"
