@@ -77,7 +77,6 @@ private:
 	unsigned m_channelDelayLength; // # of sample delay for each channel (128 = no delay)
 	unsigned  m_activeMask;      // which output channels are active
     unsigned read_offset;
-	static unsigned m_allocated[2];
 	audio_block_t *m_inputQueueArray[1];
 
 	BAGuitar::MemSelect m_mem;

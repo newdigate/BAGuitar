@@ -64,10 +64,11 @@ BAAudioEffectLoopExternal::BAAudioEffectLoopExternal(BAGuitar::MemSelect type, f
 void BAAudioEffectLoopExternal::delay(float milliseconds) {
 
 	if (milliseconds < 0.0) milliseconds = 0.0;
-	uint32_t n = (milliseconds*(AUDIO_SAMPLE_RATE_EXACT/1000.0f))+0.5f;
-	n += AUDIO_BLOCK_SAMPLES;
-	if (n > m_memoryLength - AUDIO_BLOCK_SAMPLES)
-		n = m_memoryLength - AUDIO_BLOCK_SAMPLES;
+	uint32_t n = round(milliseconds*(AUDIO_SAMPLE_RATE_EXACT/1000.0f));
+	Serial.printf(":samples: %d", n);
+	//n += AUDIO_BLOCK_SAMPLES;
+	//if (n > m_memoryLength - AUDIO_BLOCK_SAMPLES)
+//		n = m_memoryLength - AUDIO_BLOCK_SAMPLES;
 	m_channelDelayLength = n;
 	if (m_activeMask == 0) m_startUsingSPI(m_spiChannel);
 	m_activeMask = 1;
@@ -91,7 +92,7 @@ void BAAudioEffectLoopExternal::update(void)
 
 	blockIn = receiveReadOnly();
 	blockOut = allocate();
-	if (!blockOut) return;
+    if (!blockOut) return;
 
 	if (!m_activeMask) {
 		// pass-through, loop NOT active
@@ -130,12 +131,14 @@ void BAAudioEffectLoopExternal::update(void)
 
 
 	} else {
-
+        release(blockIn);
         // compute the delayed location where we read
         if (read_offset + AUDIO_BLOCK_SAMPLES <= m_memoryLength) {
             // a single read will do it
             read(read_offset, AUDIO_BLOCK_SAMPLES, blockOut->data);
 			read_offset += AUDIO_BLOCK_SAMPLES;
+			if (read_offset >= m_headOffset)
+                read_offset = m_headOffset - m_channelDelayLength;
         } else {
             // read wraps across end-of-memory
             n = m_memoryLength - read_offset;
@@ -147,8 +150,6 @@ void BAAudioEffectLoopExternal::update(void)
 	transmit(blockOut, 0);
 	release(blockOut);
 }
-
-unsigned BAAudioEffectLoopExternal::m_allocated[2] = {0, 0};
 
 void BAAudioEffectLoopExternal::initialize(MemSelect mem, unsigned delayLength)
 {
@@ -200,15 +201,17 @@ void BAAudioEffectLoopExternal::initialize(MemSelect mem, unsigned delayLength)
 	pinMode(m_csPin, OUTPUT);
 	digitalWriteFast(m_csPin, HIGH);
 
-	avail = memsize - m_allocated[mem];
+	avail = memsize;
+	//Serial.printf("avail: %d\n", avail);
 
 	if (delayLength > avail) samples = avail;
-	m_memoryStart = m_allocated[mem];
-	m_allocated[mem] += samples;
+	m_memoryStart = 0;
 	m_memoryLength = samples;
-
+    //Serial.printf("about to zero: %d\n", m_memoryLength);
+    delay(2000);
 	zero(0, m_memoryLength);
-
+    //Serial.print("zeroed!\n");
+    delay(2000);
 }
 
 
