@@ -29,6 +29,7 @@
 #include "BAGpio.h"
 #include "BAAudioEffectDelayExternal.h"
 #include "BAAudioEffectLoopExternal.h"
+#include "BAAudioEffectLoopSD.h"
 #include "AudioEffectAnalogDelay.h"
 #include "LibBasicFunctions.h"
 #include "LibMemoryManagement.h"
