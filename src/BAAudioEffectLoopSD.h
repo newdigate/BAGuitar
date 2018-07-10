@@ -50,8 +50,7 @@ public:
 	/// @param delayLengthMs maximum delay length in milliseconds
 	virtual ~BAAudioEffectLoopSD();
 
-	void initialize(unsigned delayLength = 1e6);
-	void initialize(float delayLengthMilliseconds = 1000);
+	void initialize();
 
 	/// set the actual amount of delay on a given delay tap
 	/// @param channel specify channel tap 1-8
@@ -65,16 +64,17 @@ public:
 	virtual void update(void);
 
 private:
-	void read(uint32_t address, uint32_t count, int16_t *data);
-	void write(uint32_t address, uint32_t count, const int16_t *data);
-	void zero(uint32_t address, uint32_t count);
+    char *_filename = "loop3.raw";
+    bool _initialized = false;
+    bool _reading = false;
+    bool _writing = false;
+	void read(uint32_t count, int16_t *data);
+	void write(uint32_t count, const int16_t *data);
 	File _file;    // the first address in the memory we're using
-	unsigned m_memoryLength;   // the amount of memory we're using
-	unsigned m_headOffset;     // head index (incoming) data into external memory
 	unsigned m_channelDelayLength; // # of sample delay for each channel (128 = no delay)
 	unsigned  m_activeMask;      // which output channels are active
-    unsigned read_offset;
 	audio_block_t *m_inputQueueArray[1];
+    uint32_t _filesize;
 };
 
 

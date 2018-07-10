@@ -25,35 +25,56 @@ namespace BAGuitar {
     BAAudioEffectLoopSD::BAAudioEffectLoopSD()
 	: AudioStream(1, m_inputQueueArray)
 	{
+#if defined(HAS_KINETIS_SDHC)
+		if (!(SIM_SCGC3 & SIM_SCGC3_SDHC)) AudioStartUsingSPI();
+#else
+		AudioStartUsingSPI();
+#endif
 	}
 
     BAAudioEffectLoopSD::~BAAudioEffectLoopSD()
 	{
+#if defined(HAS_KINETIS_SDHC)
+		if (!(SIM_SCGC3 & SIM_SCGC3_SDHC)) AudioStopUsingSPI();
+#else
+		AudioStopUsingSPI();
+#endif
 	}
 
 	void BAAudioEffectLoopSD::delay(float milliseconds) {
+		if (m_activeMask)
+			return;
+		__disable_irq();
+		m_activeMask = 1;
 
 		if (milliseconds < 0.0) milliseconds = 0.0;
 		uint32_t n = round(milliseconds*(AUDIO_SAMPLE_RATE_EXACT/1000.0f));
-		//Serial.printf(":samples: %d", n);
-		//n += AUDIO_BLOCK_SAMPLES;
-		//if (n > m_memoryLength - AUDIO_BLOCK_SAMPLES)
-	//		n = m_memoryLength - AUDIO_BLOCK_SAMPLES;
 		m_channelDelayLength = n;
-		m_activeMask = 1;
 
-		if (m_headOffset >= n )
-			read_offset = m_headOffset - n;
-		else
-			read_offset = m_memoryLength - (n - m_headOffset);
+		_file = SD.open(_filename, FILE_READ);
+		_filesize = _file.size();
+		if (m_channelDelayLength > _filesize / 2)
+			m_channelDelayLength = _filesize / 2;
+		_reading = true;
+		__enable_irq();
 	}
 
 	void BAAudioEffectLoopSD::disable() {
-		uint8_t mask = 0;
-		m_activeMask = mask;
+		m_activeMask = 0;
+		__disable_irq();
+		if (_file)
+			_file.close();
+		_reading = false;
+
+		_file = SD.open(_filename, FILE_WRITE);
+		_writing = true;
+		__enable_irq();
 	}
 
 	void BAAudioEffectLoopSD::update(void) {
+        if (!_initialized) return;
+        if (!_reading && !_writing) return;
+
 		audio_block_t *blockIn, *blockOut;
 		uint32_t n;
 
@@ -66,112 +87,61 @@ namespace BAGuitar {
 			// only record to memory when looping is not active
 			if (blockIn) {
 				memcpy(blockIn->data, blockOut->data, AUDIO_BLOCK_SAMPLES);
-
-				if (m_headOffset + AUDIO_BLOCK_SAMPLES <= m_memoryLength) {
-					// a single write is enough
-					write(m_headOffset, AUDIO_BLOCK_SAMPLES, blockIn->data);
-					m_headOffset += AUDIO_BLOCK_SAMPLES;
-				} else {
-					// write wraps across end-of-memory
-					n = m_memoryLength - m_headOffset;
-					write(m_headOffset, n, blockIn->data);
-					m_headOffset = AUDIO_BLOCK_SAMPLES - n;
-					write(0, m_headOffset, blockIn->data + n);
+				if (_writing) {
+					write(AUDIO_BLOCK_SAMPLES, blockIn->data);
 				}
 				release(blockIn);
 			}
 			else {
 				memset(blockOut->data, 0, AUDIO_BLOCK_SAMPLES);
-
-				// if no input, store zeros, so later playback will
-				// not be random garbage previously stored in memory
-				if (m_headOffset + AUDIO_BLOCK_SAMPLES <= m_memoryLength) {
-					zero(m_headOffset, AUDIO_BLOCK_SAMPLES);
-					m_headOffset += AUDIO_BLOCK_SAMPLES;
-				} else {
-					n = m_memoryLength - m_headOffset;
-					zero(m_headOffset, n);
-					m_headOffset = AUDIO_BLOCK_SAMPLES - n;
-					zero(0, m_headOffset);
-				}
 			}
 
 
 		} else {
 			release(blockIn);
-			// compute the delayed location where we read
-			if (read_offset + AUDIO_BLOCK_SAMPLES <= m_memoryLength) {
-				// a single read will do it
-				read(read_offset, AUDIO_BLOCK_SAMPLES, blockOut->data);
-				read_offset += AUDIO_BLOCK_SAMPLES;
-				if (read_offset >= m_headOffset)
-					read_offset = m_headOffset - m_channelDelayLength;
-			} else {
-				// read wraps across end-of-memory
-				n = m_memoryLength - read_offset;
-				read(read_offset, n, blockOut->data);
-				read(0, AUDIO_BLOCK_SAMPLES - n, blockOut->data + n);
-				read_offset = AUDIO_BLOCK_SAMPLES - n;
+			if (_reading) {
+				// compute the delayed location where we read
+					read(AUDIO_BLOCK_SAMPLES, blockOut->data);
 			}
 		}
 		transmit(blockOut, 0);
 		release(blockOut);
 	}
 
-	void BAAudioEffectLoopSD::initialize(float delayLengthMilliseconds) {
-		unsigned delayLengthInt = (delayLengthMilliseconds*(AUDIO_SAMPLE_RATE_EXACT/1000.0f))+0.5f;
-		initialize(delayLengthInt);
-	}
-	void BAAudioEffectLoopSD::initialize(unsigned delayLength)
+	void BAAudioEffectLoopSD::initialize()
 	{
-		unsigned samples = 0;
-		unsigned memsize = 65535;
-
 		m_activeMask = 0;
-		m_headOffset = 0;
 
-		if (delayLength > memsize)
-			samples = memsize;
+		__disable_irq();
+		_file = SD.open(_filename, FILE_WRITE);
 
-		m_memoryLength = samples;
-		//Serial.printf("about to zero: %d\n", m_memoryLength);
-		//delay(2000);
-		_file = SD.open("/loop.raw", O_RDWR);
-		if (!_file) return;
-		zero(0, m_memoryLength);
-		//Serial.print("zeroed!\n");
-		//delay(2000);
+		if (!_file) {
+			Serial.print("Cannt open file for write");
+			Serial.println(_filename);
+			return;
+		}
+
+		_initialized = true;
+		_writing = true;
+		Serial.println("_initialized");
+		__enable_irq();
 	}
 
-
-	void BAAudioEffectLoopSD::read(uint32_t offset, uint32_t count, int16_t *data)
+	void BAAudioEffectLoopSD::read(uint32_t count, int16_t *data)
 	{
-		_file.seek(offset);
+		__disable_irq();
+		if (!_file.available())
+			_file.seek(0);
 		_file.read(data, count * 2);
+		__enable_irq();
 	}
 
-	void BAAudioEffectLoopSD::write(uint32_t offset, uint32_t count, const int16_t *data)
+	void BAAudioEffectLoopSD::write( uint32_t count, const int16_t *data)
 	{
-		_file.seek(offset);
+		__disable_irq();
 		_file.write( (byte*)data, count * 2);
+		_file.flush();
+		__enable_irq();
 	}
-
-	///////////////////////////////////////////////////////////////////
-	// PRIVATE METHODS
-	///////////////////////////////////////////////////////////////////
-	void BAAudioEffectLoopSD::zero(uint32_t address, uint32_t count) {
-			_file.seek(address);
-			int16_t  ints[255];
-			memset(ints, 0, 255 * 2);
-			unsigned remaining = count;
-			while (remaining > 0) {
-				unsigned countSamplesToWrite= (remaining >= 255)? 255 : remaining;
-				int written = _file.write((byte*)ints, countSamplesToWrite * 2 );
-				remaining -= written;
-			}
-	}
-
-
-
 
 } /* namespace BAGuitar */
