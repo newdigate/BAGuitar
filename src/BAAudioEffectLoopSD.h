@@ -64,15 +64,15 @@ public:
 	virtual void update(void);
 
 private:
-    char *_filename = "loop3.raw";
+    const char *_filename = "loop.raw";
     bool _initialized = false;
-    bool _reading = false;
-    bool _writing = false;
 	void read(uint32_t count, int16_t *data);
 	void write(uint32_t count, const int16_t *data);
 	File _file;    // the first address in the memory we're using
 	unsigned m_channelDelayLength; // # of sample delay for each channel (128 = no delay)
 	unsigned  m_activeMask;      // which output channels are active
+    byte _writebuffer[16384];
+    uint16_t _writeBufferIndex = 0;
 	audio_block_t *m_inputQueueArray[1];
     uint32_t _filesize;
 };
